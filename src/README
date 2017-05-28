@@ -1,0 +1,5 @@
+Download android ndk package.
+Replace BASE in Makefile with the path to unpacked ndk.
+Makefile is setup to target 64-bit phones. To switch to 32-bit reassign
+CCC to CC (instead CC64), CFLAGS to CFALGS32, ROOT to ROOT32.
+
