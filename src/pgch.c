@@ -1,57 +1,6 @@
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <net/if.h>
-#include <errno.h>
+#include "pgch.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/ioctl.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <errno.h>
-#include <string.h>
-
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
-#include <linux/if_ether.h>
-#include <linux/filter.h>
-#include <pthread.h>
-#include <time.h>
-
-#define BUFSIZE 1024
-
-// from <linux/input.h>
-#define EVIOCGVERSION		_IOR('E', 0x01, int)			/* get driver version */
-#define EVIOCGID		_IOR('E', 0x02, struct input_id)	/* get device ID */
-#define EVIOCGKEYCODE		_IOR('E', 0x04, int[2])			/* get keycode */
-#define EVIOCSKEYCODE		_IOW('E', 0x04, int[2])			/* set keycode */
-#define EVIOCGNAME(len)		_IOC(_IOC_READ, 'E', 0x06, len)		/* get device name */
-#define EVIOCGPHYS(len)		_IOC(_IOC_READ, 'E', 0x07, len)		/* get physical location */
-#define EVIOCGUNIQ(len)		_IOC(_IOC_READ, 'E', 0x08, len)		/* get unique identifier */
-#define EVIOCGKEY(len)		_IOC(_IOC_READ, 'E', 0x18, len)		/* get global keystate */
-#define EVIOCGLED(len)		_IOC(_IOC_READ, 'E', 0x19, len)		/* get all LEDs */
-#define EVIOCGSND(len)		_IOC(_IOC_READ, 'E', 0x1a, len)		/* get all sounds status */
-#define EVIOCGSW(len)		_IOC(_IOC_READ, 'E', 0x1b, len)		/* get all switch states */
-#define EVIOCGBIT(ev,len)	_IOC(_IOC_READ, 'E', 0x20 + ev, len)	/* get event bits */
-#define EVIOCGABS(abs)		_IOR('E', 0x40 + abs, struct input_absinfo)		/* get abs value/limits */
-#define EVIOCSABS(abs)		_IOW('E', 0xc0 + abs, struct input_absinfo)		/* set abs value/limits */
-#define EVIOCSFF		_IOC(_IOC_WRITE, 'E', 0x80, sizeof(struct ff_effect))	/* send a force effect to a force feedback device */
-#define EVIOCRMFF		_IOW('E', 0x81, int)			/* Erase a force effect */
-#define EVIOCGEFFECTS		_IOR('E', 0x84, int)			/* Report number of effects playable at the same time */
-#define EVIOCGRAB		_IOW('E', 0x90, int)			/* Grab/Release device */
-
-struct input_event {
-	struct timeval time;
-	__u16 type;
-	__u16 code;
-	__s32 value;
-};
-// end <linux/input.h>
+unsigned long long mcounter = 0;
 
 int print_addresses(const int domain) {
 	int s;
@@ -179,12 +128,12 @@ int send_swipe(int fd, char* buf) {
 	return 1;
 }
 
-int test2() {
+int capture_screen(char** msg_out) {
 	FILE *pipe_fp;
 	char readbuf[4096];
 	int bsize = sizeof(readbuf);
 	int c;
-	int bcount;
+	int bcount = 0;
 	int fd;
 
 	/* Create one way pipe line with call to popen() */
@@ -209,18 +158,28 @@ int test2() {
 		if (c == 0) {
 			break;
 		}
-		//printf("%c", c);
+
+		//Allocate memory for new portion of data
+		if(bcount > 0){
+			*msg_out = m_realloc(*msg_out, bcount, bcount + c);
+		} else {
+			*msg_out = m_malloc(c);
+		}
+
+		//Copy new data into result buffer
+		memcpy(*msg_out + bcount, readbuf, c);
 		bcount = bcount + c;
 	} while (1);
 
 	pclose(pipe_fp);
 
-	printf("got bytes: %d\n", bcount);
+	printf("got png bytes: %d\n", bcount);
+	hexdump(*msg_out, 256);
 
-	return 1;
+	return bcount;
 }
 
-void hexdump(char *desc, void *buf, int len) {
+void hexdump(void *buf, int len) {
 	int i;
 	unsigned char buff[17];
 	unsigned char *pc = (unsigned char*) buf;
@@ -230,7 +189,7 @@ void hexdump(char *desc, void *buf, int len) {
 		// Multiple of 16 means new line (with line offset).
 
 		if ((i % 16) == 0) {
-			// Just don't print ASCII for the zeroth line.
+			// Just don't print ASCII for the zero line.
 			if (i != 0)
 				printf("  %s\n", buff);
 
@@ -259,10 +218,51 @@ void hexdump(char *desc, void *buf, int len) {
 	printf("  %s\n", buff);
 }
 
-int handle_message(int msgId, int type, char* msg, int len) {
+int handle_message(int msgId, int type, char* msg, int len, char** msg_out) {
+	int res = 0;
 	printf("Got message, msgId: %d, type: %d, len: %d\n", msgId, type, len);
-	hexdump("MSGDUMP", msg, len);
-	return 1;
+	hexdump(msg, len);
+
+	switch (type) {
+		case MESSAGE_ANDROID_TYPE_TEST:
+			printf("Got TEST, msgId: %d\n", msgId);
+			break;
+		case MESSAGE_ANDROID_SCREEN_CAP:
+			res = capture_screen(msg_out);
+			break;
+		case MESSAGE_ANDROID_SEND_TOUCH:
+			break;
+		case MESSAGE_ANDROID_SEND_SWIPE:
+			break;
+		default:
+			break;
+	}
+
+	printf("got response bytes: %d\n", res);
+	hexdump(*msg_out, 256);
+
+	return res;
+}
+
+char* m_malloc(size_t size){
+	char* buf = malloc(size);
+	if(buf != NULL){
+		mcounter += size;
+	}
+	return buf;
+}
+
+char* m_realloc(char* ptr, size_t old_size, size_t new_size){
+	char* buf = realloc(ptr, new_size);
+	if(buf != NULL){
+		mcounter = mcounter - old_size + new_size;
+	}
+	return buf;
+}
+
+void m_free(char* ptr, size_t size){
+	free(ptr);
+	mcounter -= size;
 }
 
 int run(int port) {
@@ -276,6 +276,7 @@ int run(int port) {
 	char msgbuf[4096];
 	int msgId;
 	int type;
+	char* msg_out = 0;
 
 	//Create socket
 	socket_desc = socket(AF_INET, SOCK_STREAM, 0);
@@ -330,16 +331,29 @@ int run(int port) {
 			}
 
 			//Read message
-			b = read(client_sock, msgbuf, blen);
+			b = read(client_sock, &msgbuf, blen);
 			if (b != blen) {
 				printf("Can't read message, closing socket\n");
 				break;
 			}
 
-			msgId = atoi(msgbuf);
-			type = atoi(msgbuf + 4);
+			hexdump(msgbuf, blen);
+			hexdump(&msgId, 4);
+			memcpy(&msgId, msgbuf, 4);
+			hexdump(&msgId, 4);
+			memcpy(&type, msgbuf + 4, 4);
 
-			handle_message(msgId, type, msgbuf + 8, blen - 8);
+			blen = handle_message(msgId, type, msgbuf + 8, blen - 8, &msg_out);
+
+			printf("got msg_out bytes: %d\n", blen);
+			hexdump(msg_out, 256);
+
+			if (blen > 0) {
+				send(client_sock, &blen, 4, 0);
+				send(client_sock, msg_out, blen, 0);
+
+				m_free(msg_out, blen);
+			}
 
 		}
 
@@ -370,13 +384,13 @@ int test3() {
 	}
 
 	//send test events
-	send_touch(fd, 600, 1000);
-	send_swipe(fd, "TESTB");
+	//send_touch(fd, 600, 1000);
+	//send_swipe(fd, "TESTB");
 
 	//test reading screen
 
 	gettimeofday(&t0, NULL);
-	test2();
+	//capture_screen();
 	gettimeofday(&t1, NULL);
 	print_dt(&t0, &t1);
 
