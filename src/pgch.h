@@ -57,6 +57,7 @@ struct input_event {
 #define MESSAGE_ANDROID_SCREEN_CAP 2
 #define MESSAGE_ANDROID_SEND_TOUCH 3
 #define MESSAGE_ANDROID_SEND_SWIPE 4
+#define MESSAGE_ANDROID_EXIT 7899
 
 int print_addresses(const int domain);
 int open_fd(char* dev);
@@ -64,7 +65,10 @@ int send_event(int fd, int type, int code, int value);
 int send_touch(int fd, int x, int y);
 void hexdump(void *buf, int len);
 int handle_message(int msgId, int type, char* msg, int len, char** msg_out);
+int hangle_touch_msg(char* msg, char** msg_out);
+int hangle_swipe_msg(char* msg, int len, char** msg_out);
 int print_dt(struct timeval* t0, struct timeval* t1);
 char* m_malloc(size_t size);
 char* m_realloc(char* ptr, size_t old_size, size_t new_size);
 void m_free(char* ptr, size_t size);
+int capture_screen(char** msg_out);

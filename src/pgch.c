@@ -1,6 +1,7 @@
 #include "pgch.h"
 
-unsigned long long mcounter = 0;
+unsigned long long mcounter = 0; //Counter of the allocated bytes
+int fd; //file descriptor for the touch events
 
 int print_addresses(const int domain) {
 	int s;
@@ -76,38 +77,34 @@ int send_event(int fd, int type, int code, int value) {
 	return 1;
 }
 
-int parse_output(char* cmd) {
-	char buf[BUFSIZE];
-	FILE *fp;
-
-	if ((fp = popen(cmd, "r")) == NULL) {
-		printf("Error opening pipe!\n");
-		return -1;
-	}
-
-	while (fgets(buf, BUFSIZE, fp) != NULL) {
-		// Do whatever you want here...
-		printf("OUTPUT: %s", buf);
-	}
-
-	if (pclose(fp)) {
-		printf("Command not found or exited with error status\n");
-		return -1;
-	}
-
-	return 0;
-}
-
 int send_touch(int fd, int x, int y) {
 	int ret = 1;
 
-	ret = ret & send_event(fd, 3, 57, 470);
+//	ret = ret & send_event(fd, 3, 57, 470);
+//	ret = ret & send_event(fd, 3, 53, x);
+//	ret = ret & send_event(fd, 3, 54, y);
+//	ret = ret & send_event(fd, 3, 58, 47);
+//	ret = ret & send_event(fd, 0, 0, 0);
+//	ret = ret & send_event(fd, 3, 57, 0xffffffff);
+//	ret = ret & send_event(fd, 0, 0, 0);
+
+	ret = ret & send_event(fd, 3, 57, 1522);
 	ret = ret & send_event(fd, 3, 53, x);
 	ret = ret & send_event(fd, 3, 54, y);
-	ret = ret & send_event(fd, 3, 58, 47);
+	ret = ret & send_event(fd, 1, 330, 1);
 	ret = ret & send_event(fd, 0, 0, 0);
 	ret = ret & send_event(fd, 3, 57, 0xffffffff);
+	ret = ret & send_event(fd, 1, 330, 0);
 	ret = ret & send_event(fd, 0, 0, 0);
+
+//	sendevent /dev/input/event1 3 57 1522
+//	sendevent /dev/input/event1 3 53 353
+//	sendevent /dev/input/event1 3 54 474
+//	sendevent /dev/input/event1 1 330 1
+//	sendevent /dev/input/event1 0 0 0
+//	sendevent /dev/input/event1 3 57 4294967295
+//	sendevent /dev/input/event1 1 330 0
+//	sendevent /dev/input/event1 0 0 0
 
 	return ret;
 }
@@ -128,6 +125,44 @@ int send_swipe(int fd, char* buf) {
 	return 1;
 }
 
+int hangle_touch_msg(char* msg, char** msg_out) {
+	int x, y;
+
+	memcpy(&x, msg, 4);
+	memcpy(&y, msg + 4, 4);
+
+	printf("Sending touch event x:%d, y:%d\n", x, y);
+
+	send_touch(fd, x, y);
+
+	*msg_out = m_malloc(4);
+	sprintf(*msg_out, "%s", "OK!");
+
+	return 4;
+}
+
+int hangle_swipe_msg(char* msg, int len, char** msg_out) {
+	uint type, code, value;
+	int i = 0;
+	//hexdump(msg, len);
+
+	for (i = 0; i < len / 12; i++) {
+		memcpy(&type, msg + (i * 12), 4);
+		memcpy(&code, msg + (i * 12) + 4, 4);
+		memcpy(&value, msg + (i * 12) + 8, 4);
+
+		printf("event: %x %x %x\n", type, code, value);
+		usleep(5000);
+
+		send_event(fd, type, code, value);
+	}
+
+	*msg_out = m_malloc(4);
+	sprintf(*msg_out, "%s", "OK!");
+
+	return 4;
+}
+
 int capture_screen(char** msg_out) {
 	FILE *pipe_fp;
 	char readbuf[4096];
@@ -143,15 +178,6 @@ int capture_screen(char** msg_out) {
 	}
 
 	/* Processing loop */
-//	do {
-//		c = fgetc(pipe_fp);
-//		if (feof(pipe_fp)) {
-//			break;
-//		}
-//		//printf("%c", c);
-//		bcount++;
-//	} while (1);
-	/* Processing loop */
 	fd = fileno(pipe_fp);
 	do {
 		c = read(fd, readbuf, bsize);
@@ -160,7 +186,7 @@ int capture_screen(char** msg_out) {
 		}
 
 		//Allocate memory for new portion of data
-		if(bcount > 0){
+		if (bcount > 0) {
 			*msg_out = m_realloc(*msg_out, bcount, bcount + c);
 		} else {
 			*msg_out = m_malloc(c);
@@ -224,45 +250,55 @@ int handle_message(int msgId, int type, char* msg, int len, char** msg_out) {
 	hexdump(msg, len);
 
 	switch (type) {
-		case MESSAGE_ANDROID_TYPE_TEST:
-			printf("Got TEST, msgId: %d\n", msgId);
-			break;
-		case MESSAGE_ANDROID_SCREEN_CAP:
-			res = capture_screen(msg_out);
-			break;
-		case MESSAGE_ANDROID_SEND_TOUCH:
-			break;
-		case MESSAGE_ANDROID_SEND_SWIPE:
-			break;
-		default:
-			break;
+	case MESSAGE_ANDROID_TYPE_TEST:
+		printf("Got TEST, msgId: %d\n", msgId);
+		break;
+	case MESSAGE_ANDROID_SCREEN_CAP:
+		res = capture_screen(msg_out);
+		break;
+	case MESSAGE_ANDROID_SEND_TOUCH:
+		res = hangle_touch_msg(msg, msg_out);
+		break;
+	case MESSAGE_ANDROID_SEND_SWIPE:
+		res = hangle_swipe_msg(msg, len, msg_out);
+		break;
+	default:
+		break;
 	}
 
 	printf("got response bytes: %d\n", res);
-	hexdump(*msg_out, 256);
+	hexdump(*msg_out, res > 256 ? 256 : res);
 
 	return res;
 }
 
-char* m_malloc(size_t size){
+char* m_malloc(size_t size) {
 	char* buf = malloc(size);
-	if(buf != NULL){
+	if (buf != NULL) {
 		mcounter += size;
 	}
+
+	printf("TEST MALLOC : %llu\n", mcounter);
+
 	return buf;
 }
 
-char* m_realloc(char* ptr, size_t old_size, size_t new_size){
+char* m_realloc(char* ptr, size_t old_size, size_t new_size) {
 	char* buf = realloc(ptr, new_size);
-	if(buf != NULL){
+	if (buf != NULL) {
 		mcounter = mcounter - old_size + new_size;
 	}
+
+	printf("TEST REALLOC : %llu\n", mcounter);
+
 	return buf;
 }
 
-void m_free(char* ptr, size_t size){
+void m_free(char* ptr, size_t size) {
 	free(ptr);
 	mcounter -= size;
+
+	printf("TEST FREE: %llu\n", mcounter);
 }
 
 int run(int port) {
@@ -272,11 +308,12 @@ int run(int port) {
 	struct sockaddr_in client; /* client addr */
 	char *hostaddrp; /* dotted decimal host addr string */
 
-	int b, blen;
-	char msgbuf[4096];
+	int b, blen, br, rlen;
+	char* msgbuf;
 	int msgId;
 	int type;
 	char* msg_out = 0;
+	int exit = 0;
 
 	//Create socket
 	socket_desc = socket(AF_INET, SOCK_STREAM, 0);
@@ -302,7 +339,7 @@ int run(int port) {
 	listen(socket_desc, 3);
 
 	//Always wait for incoming connections
-	while (1) {
+	while (!exit) {
 		//Accept and incoming connection
 		printf("Waiting for incoming connections...\n");
 		c = sizeof(struct sockaddr_in);
@@ -330,29 +367,54 @@ int run(int port) {
 				break;
 			}
 
+			printf("Expecting message with length: %d\n", blen);
+			msgbuf = m_malloc(blen);
+
 			//Read message
-			b = read(client_sock, &msgbuf, blen);
-			if (b != blen) {
-				printf("Can't read message, closing socket\n");
+			br = 0;
+			while (br < blen) {
+				b = read(client_sock, msgbuf + br, blen - br);
+				br += b;
+				printf("b=%d, got total %d out of %d bytes\n", b, br, blen);
+				if (b <= 0) {
+					break;
+				}
+			}
+
+			//Check if we did not manage to read message
+			if (br < blen) {
+				printf("Can't read message, closing socket, b=%d, error: %s\n",
+						b, strerror(errno));
 				break;
 			}
 
-			hexdump(msgbuf, blen);
-			hexdump(&msgId, 4);
 			memcpy(&msgId, msgbuf, 4);
-			hexdump(&msgId, 4);
 			memcpy(&type, msgbuf + 4, 4);
 
-			blen = handle_message(msgId, type, msgbuf + 8, blen - 8, &msg_out);
+			if (type == MESSAGE_ANDROID_EXIT) {
+				printf("Got exit message! Closing...\n");
+				exit = 1;
+				break;
+			}
 
-			printf("got msg_out bytes: %d\n", blen);
-			hexdump(msg_out, 256);
+			rlen = handle_message(msgId, type, msgbuf + 8, blen - 8, &msg_out);
 
-			if (blen > 0) {
-				send(client_sock, &blen, 4, 0);
-				send(client_sock, msg_out, blen, 0);
+			//Release memory for the original message
+			m_free(msgbuf, blen);
 
-				m_free(msg_out, blen);
+			printf("run, got msg_out bytes: %d\n", rlen);
+			hexdump(msg_out, rlen > 256 ? 256 : rlen);
+
+			rlen += 8; //to account for msgId and type
+
+			//Send response back
+			if (rlen > 0) {
+				send(client_sock, &rlen, 4, 0);
+				send(client_sock, &msgId, 4, 0);
+				send(client_sock, &type, 4, 0);
+				send(client_sock, msg_out, rlen, 0);
+
+				m_free(msg_out, rlen - 8);
 			}
 
 		}
@@ -401,6 +463,13 @@ int test3() {
 
 int main(int argc, char **argv) {
 	print_addresses(AF_INET);
+
+	fd = open_fd("/dev/input/event1");
+	if (fd <= 0) {
+		printf("can't open, exiting...\n");
+		return 1;
+	}
+
 	run(8003);
 }
 
