@@ -320,7 +320,7 @@ int run(int port) {
 	if (socket_desc == -1) {
 		printf("Could not create socket\n");
 	}
-	printf("Socket created\n");
+	printf("Socket created, on port: %d\n", port);
 
 	//Prepare the sockaddr_in structure
 	server.sin_family = AF_INET;
@@ -439,7 +439,7 @@ int test3() {
 	printf("Test of send event...\n");
 
 	//Open file descriptor for output
-	fd = open_fd("/dev/input/event1");
+	fd = open_fd("/dev/input/event0");
 	if (fd <= 0) {
 		printf("can't open, exiting...\n");
 		return 1;
@@ -464,7 +464,7 @@ int test3() {
 int main(int argc, char **argv) {
 	print_addresses(AF_INET);
 
-	fd = open_fd("/dev/input/event1");
+	fd = open_fd("/dev/input/event0");
 	if (fd <= 0) {
 		printf("can't open, exiting...\n");
 		return 1;
