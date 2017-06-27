@@ -80,14 +80,6 @@ int send_event(int fd, int type, int code, int value) {
 int send_touch(int fd, int x, int y) {
 	int ret = 1;
 
-//	ret = ret & send_event(fd, 3, 57, 470);
-//	ret = ret & send_event(fd, 3, 53, x);
-//	ret = ret & send_event(fd, 3, 54, y);
-//	ret = ret & send_event(fd, 3, 58, 47);
-//	ret = ret & send_event(fd, 0, 0, 0);
-//	ret = ret & send_event(fd, 3, 57, 0xffffffff);
-//	ret = ret & send_event(fd, 0, 0, 0);
-
 	ret = ret & send_event(fd, 3, 57, 1522);
 	ret = ret & send_event(fd, 3, 53, x);
 	ret = ret & send_event(fd, 3, 54, y);
@@ -97,32 +89,7 @@ int send_touch(int fd, int x, int y) {
 	ret = ret & send_event(fd, 1, 330, 0);
 	ret = ret & send_event(fd, 0, 0, 0);
 
-//	sendevent /dev/input/event1 3 57 1522
-//	sendevent /dev/input/event1 3 53 353
-//	sendevent /dev/input/event1 3 54 474
-//	sendevent /dev/input/event1 1 330 1
-//	sendevent /dev/input/event1 0 0 0
-//	sendevent /dev/input/event1 3 57 4294967295
-//	sendevent /dev/input/event1 1 330 0
-//	sendevent /dev/input/event1 0 0 0
-
 	return ret;
-}
-
-int send_swipe(int fd, char* buf) {
-	printf("TEST 1, %s\n", buf);
-	char *p = strtok(buf, ";");
-
-	printf("TEST 2\n");
-
-	while (p != NULL) {
-		printf("TEST 3\n");
-		printf("event: %s\n", p);
-		p = strtok(NULL, ";");
-	}
-	printf("TEST 4\n");
-
-	return 1;
 }
 
 int hangle_touch_msg(char* msg, char** msg_out) {
@@ -151,7 +118,7 @@ int hangle_swipe_msg(char* msg, int len, char** msg_out) {
 		memcpy(&code, msg + (i * 12) + 4, 4);
 		memcpy(&value, msg + (i * 12) + 8, 4);
 
-		printf("event: %x %x %x\n", type, code, value);
+//		printf("event: %x %x %x\n", type, code, value);
 		usleep(5000);
 
 		send_event(fd, type, code, value);
@@ -200,15 +167,17 @@ int capture_screen(char** msg_out) {
 	pclose(pipe_fp);
 
 	printf("got png bytes: %d\n", bcount);
-	hexdump(*msg_out, 256);
+//	hexdump(*msg_out, 256);
 
 	return bcount;
 }
 
 void hexdump(void *buf, int len) {
-	int i;
+	int i = 0;
 	unsigned char buff[17];
 	unsigned char *pc = (unsigned char*) buf;
+
+	if(len == 0) return;
 
 	// Process every byte in the data.
 	for (i = 0; i < len; i++) {
@@ -247,7 +216,7 @@ void hexdump(void *buf, int len) {
 int handle_message(int msgId, int type, char* msg, int len, char** msg_out) {
 	int res = 0;
 	printf("Got message, msgId: %d, type: %d, len: %d\n", msgId, type, len);
-	hexdump(msg, len);
+	//hexdump(msg, len);
 
 	switch (type) {
 	case MESSAGE_ANDROID_TYPE_TEST:
@@ -267,7 +236,7 @@ int handle_message(int msgId, int type, char* msg, int len, char** msg_out) {
 	}
 
 	printf("got response bytes: %d\n", res);
-	hexdump(*msg_out, res > 256 ? 256 : res);
+//	hexdump(*msg_out, res > 256 ? 256 : res);
 
 	return res;
 }
@@ -278,8 +247,6 @@ char* m_malloc(size_t size) {
 		mcounter += size;
 	}
 
-	printf("TEST MALLOC : %llu\n", mcounter);
-
 	return buf;
 }
 
@@ -288,8 +255,6 @@ char* m_realloc(char* ptr, size_t old_size, size_t new_size) {
 	if (buf != NULL) {
 		mcounter = mcounter - old_size + new_size;
 	}
-
-	printf("TEST REALLOC : %llu\n", mcounter);
 
 	return buf;
 }
@@ -402,7 +367,8 @@ int run(int port) {
 			//Release memory for the original message
 			m_free(msgbuf, blen);
 
-			printf("run, got msg_out bytes: %d\n", rlen);
+			printf("run, msg_out, msgId: %d, type: %d, len: %d\n", msgId, type, rlen);
+			printf("run, msg_out bytes: %d\n", rlen);
 			hexdump(msg_out, rlen > 256 ? 256 : rlen);
 
 			rlen += 8; //to account for msgId and type
@@ -412,7 +378,7 @@ int run(int port) {
 				send(client_sock, &rlen, 4, 0);
 				send(client_sock, &msgId, 4, 0);
 				send(client_sock, &type, 4, 0);
-				send(client_sock, msg_out, rlen, 0);
+				send(client_sock, msg_out, rlen - 8, 0);
 
 				m_free(msg_out, rlen - 8);
 			}
@@ -432,35 +398,6 @@ int print_dt(struct timeval* t0, struct timeval* t1) {
 	return 1;
 }
 
-int test3() {
-	int fd;
-	struct timeval t0, t1;
-
-	printf("Test of send event...\n");
-
-	//Open file descriptor for output
-	fd = open_fd("/dev/input/event0");
-	if (fd <= 0) {
-		printf("can't open, exiting...\n");
-		return 1;
-	}
-
-	//send test events
-	//send_touch(fd, 600, 1000);
-	//send_swipe(fd, "TESTB");
-
-	//test reading screen
-
-	gettimeofday(&t0, NULL);
-	//capture_screen();
-	gettimeofday(&t1, NULL);
-	print_dt(&t0, &t1);
-
-	printf("Test of send done!\n");
-
-	return 1;
-}
-
 int main(int argc, char **argv) {
 	print_addresses(AF_INET);
 
@@ -473,32 +410,3 @@ int main(int argc, char **argv) {
 	run(8003);
 }
 
-int test1(void) {
-	printf("Hello World!\n");
-
-	char *buf[128];
-
-	int x0 = 100;
-	int x1 = 1000;
-	int y0 = 250;
-	int y1 = 1700;
-
-	int steps = 10;
-	int dx = (x1 - x0) / steps;
-	int dy = (y1 - y0) / steps;
-
-	int x, y;
-
-	for (int i = 0; i < steps; i++) {
-		x = x0 + dx * i;
-		y = y0 + dy * i;
-//		sprintf(buf, "/system/bin/input touchscreen swipe %d %d %d %d %d", x0, y, x1, y, 200 * i);
-//		parse_output(buf);
-//		sprintf(buf, "/system/bin/input touchscreen swipe %d %d %d %d %d", x, y0, x, y1, 200 * i);
-//		parse_output(buf);
-	}
-
-//	parse_output("/system/bin/input touchscreen swipe 100 500 1000 500 100");
-
-	return 0;
-}
