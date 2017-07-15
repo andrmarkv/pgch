@@ -369,7 +369,7 @@ int run(int port) {
 
 			printf("run, msg_out, msgId: %d, type: %d, len: %d\n", msgId, type, rlen);
 			printf("run, msg_out bytes: %d\n", rlen);
-			hexdump(msg_out, rlen > 256 ? 256 : rlen);
+			//hexdump(msg_out, rlen > 256 ? 256 : rlen);
 
 			rlen += 8; //to account for msgId and type
 
@@ -399,9 +399,17 @@ int print_dt(struct timeval* t0, struct timeval* t1) {
 }
 
 int main(int argc, char **argv) {
+	setbuf(stdout, NULL);
+
 	print_addresses(AF_INET);
 
-	fd = open_fd("/dev/input/event0");
+	char* dev = "/dev/input/event0";
+	if (argc == 2){
+		dev = argv[1];
+	}
+	printf("Using input device: %s\n", dev);
+
+	fd = open_fd(dev);
 	if (fd <= 0) {
 		printf("can't open, exiting...\n");
 		return 1;
